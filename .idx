@@ -1,0 +1,271 @@
+class Planeta {
+  int? id;
+  String nome;
+  double distanciaSol;
+  double tamanho;
+  String? apelido;
+
+  Planeta({
+    this.id,
+    required this.nome,
+    required this.distanciaSol,
+    required this.tamanho,
+    this.apelido,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'nome': nome,
+      'distanciaSol': distanciaSol,
+      'tamanho': tamanho,
+      'apelido': apelido,
+    };
+  }
+
+  static Planeta fromMap(Map<String, dynamic> map) {
+    return Planeta(
+      id: map['id'],
+      nome: map['nome'],
+      distanciaSol: map['distanciaSol'],
+      tamanho: map['tamanho'],
+      apelido: map['apelido'],
+    );
+  }
+}
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+import 'planeta.dart';
+
+class DatabaseHelper {
+  static final _databaseName = "planetas.db";
+  static final _databaseVersion = 1;
+
+  static final table = 'planetas';
+  static final columnId = 'id';
+  static final columnNome = 'nome';
+  static final columnDistanciaSol = 'distanciaSol';
+  static final columnTamanho = 'tamanho';
+  static final columnApelido = 'apelido';
+
+  DatabaseHelper._privateConstructor();
+  static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
+
+  static Database? _database;
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDatabase();
+    return _database!;
+  }
+
+  _initDatabase() async {
+    var path = join(await getDatabasesPath(), _databaseName);
+    return await openDatabase(path, version: _databaseVersion, onCreate: _onCreate);
+  }
+
+  Future _onCreate(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE $table (
+        $columnId INTEGER PRIMARY KEY,
+        $columnNome TEXT NOT NULL,
+        $columnDistanciaSol REAL NOT NULL,
+        $columnTamanho REAL NOT NULL,
+        $columnApelido TEXT
+      )
+    ''');
+  }
+
+  Future<int> insert(Planeta planeta) async {
+    Database db = await instance.database;
+    return await db.insert(table, planeta.toMap());
+  }
+
+  Future<List<Planeta>> queryAllPlanetas() async {
+    Database db = await instance.database;
+    var res = await db.query(table);
+    List<Planeta> list = res.isNotEmpty ? res.map((c) => Planeta.fromMap(c)).toList() : [];
+    return list;
+  }
+
+  Future<int> update(Planeta planeta) async {
+    Database db = await instance.database;
+    return await db.update(table, planeta.toMap(),
+        where: '$columnId = ?', whereArgs: [planeta.id]);
+  }
+
+  Future<int> delete(int id) async {
+    Database db = await instance.database;
+    return await db.delete(table, where: '$columnId = ?', whereArgs: [id]);
+  }
+}
+import 'package:flutter/material.dart';
+import 'database_helper.dart';
+import 'planeta.dart';
+import 'detalhes_planeta.dart';
+import 'formulario_planeta.dart';
+
+class HomePage extends StatefulWidget {
+  @override
+  _HomePageState createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  late Future<List<Planeta>> planetas;
+
+  @override
+  void initState() {
+    super.initState();
+    planetas = DatabaseHelper.instance.queryAllPlanetas();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Planetas')),
+      body: FutureBuilder<List<Planeta>>(
+        future: planetas,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          } else if (snapshot.hasError) {
+            return Center(child: Text('Erro ao carregar planetas.'));
+          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return Center(child: Text('Nenhum planeta cadastrado.'));
+          } else {
+            List<Planeta> planetas = snapshot.data!;
+            return ListView.builder(
+              itemCount: planetas.length,
+              itemBuilder: (context, index) {
+                final planeta = planetas[index];
+                return ListTile(
+                  title: Text(planeta.nome),
+                  subtitle: Text(planeta.apelido ?? 'Sem apelido'),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => DetalhesPlaneta(planeta: planeta),
+                      ),
+                    );
+                  },
+                );
+              },
+            );
+          }
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => FormularioPlaneta()),
+          );
+          if (result != null) {
+            setState(() {
+              planetas = DatabaseHelper.instance.queryAllPlanetas();
+            });
+          }
+        },
+        child: Icon(Icons.add),
+      ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'planeta.dart';
+
+class DetalhesPlaneta extends StatelessWidget {
+  final Planeta planeta;
+
+  DetalhesPlaneta({required this.planeta});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(planeta.nome)),
+      body: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Nome: ${planeta.nome}', style: TextStyle(fontSize: 20)),
+            Text('Apelido: ${planeta.apelido ?? "Não informado"}'),
+            Text('Distância do Sol: ${planeta.distanciaSol} AU'),
+            Text('Tamanho: ${planeta.tamanho} km'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'database_helper.dart';
+import 'planeta.dart';
+
+class FormularioPlaneta extends StatefulWidget {
+  @override
+  _FormularioPlanetaState createState() => _FormularioPlanetaState();
+}
+
+class _FormularioPlanetaState extends State<FormularioPlaneta> {
+  final _nomeController = TextEditingController();
+  final _distanciaSolController = TextEditingController();
+  final _tamanhoController = TextEditingController();
+  final _apelidoController = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Adicionar Planeta')),
+      body: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            TextField(
+              controller: _nomeController,
+              decoration: InputDecoration(labelText: 'Nome do Planeta'),
+            ),
+            TextField(
+              controller: _distanciaSolController,
+              decoration: InputDecoration(labelText: 'Distância do Sol (AU)'),
+              keyboardType: TextInputType.number,
+            ),
+            TextField(
+              controller: _tamanhoController,
+              decoration: InputDecoration(labelText: 'Tamanho (km)'),
+              keyboardType: TextInputType.number,
+            ),
+            TextField(
+              controller: _apelidoController,
+              decoration: InputDecoration(labelText: 'Apelido (opcional)'),
+            ),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                final nome = _nomeController.text;
+                final distanciaSol = double.tryParse(_distanciaSolController.text);
+                final tamanho = double.tryParse(_tamanhoController.text);
+                final apelido = _apelidoController.text.isEmpty
+                    ? null
+                    : _apelidoController.text;
+
+                if (nome.isNotEmpty && distanciaSol != null && tamanho != null) {
+                  final planeta = Planeta(
+                    nome: nome,
+                    distanciaSol: distanciaSol,
+                    tamanho: tamanho,
+                    apelido: apelido,
+                  );
+                  DatabaseHelper.instance.insert(planeta);
+                  Navigator.pop(context, true);
+                }
+              },
+              child: Text('Salvar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
